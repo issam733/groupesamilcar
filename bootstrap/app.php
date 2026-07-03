@@ -14,6 +14,13 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware) {
+        // ─── Confiance au proxy de l'hébergeur (Render, etc.) ───
+        // Derrière un proxy HTTPS, Laravel croit être en HTTP et génère des
+        // URL/formulaires en http:// (avertissement "formulaire non sécurisé").
+        // En faisant confiance au proxy, Laravel lit X-Forwarded-Proto et
+        // génère bien des URL https://.
+        $middleware->trustProxies(at: '*');
+
         // ─── IMPORTANT : enregistrement du middleware de rôle ───
         // C'est cette ligne qui permet d'utiliser 'role:admin', 'role:parent', etc.
         // dans les routes (web.php) pour protéger l'accès par rôle.
