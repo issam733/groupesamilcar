@@ -21,6 +21,19 @@ class User extends Authenticatable
         'actif'             => 'boolean',
     ];
 
+    protected static function booted(): void
+    {
+        // La colonne historique "name" (scaffold Laravel par défaut) reste NOT NULL
+        // en base, mais aucun formulaire de l'app ne la renseigne (tout passe par
+        // nom/prenom). On la synchronise automatiquement pour éviter toute erreur
+        // d'intégrité, quel que soit le contrôleur qui crée l'utilisateur.
+        static::saving(function (User $user) {
+            if (empty($user->name) && ($user->nom || $user->prenom)) {
+                $user->name = trim("{$user->prenom} {$user->nom}");
+            }
+        });
+    }
+
     // Relations
     public function enseignant() { return $this->hasOne(Enseignant::class); }
     public function parent()     { return $this->hasOne(ParentEleve::class); }

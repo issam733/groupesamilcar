@@ -19,6 +19,7 @@ use App\Http\Controllers\Admin\ExamenController;
 use App\Http\Controllers\Admin\BibliothequeController;
 use App\Http\Controllers\Admin\AttestationController;
 use App\Http\Controllers\Admin\AnnonceController;
+use App\Http\Controllers\Admin\ParametreController;
 
 use App\Http\Controllers\Parent\DashboardController as ParentDashboardController;
 use App\Http\Controllers\Eleve\DashboardController as EleveDashboardController;
@@ -174,6 +175,7 @@ Route::middleware(['auth', 'role:admin'])
         Route::get('examens/create',       [ExamenController::class, 'create'])->name('examens.create');
         Route::post('examens/generer',     [ExamenController::class, 'generer'])->name('examens.generer');
         Route::get('examens/{examen}',     [ExamenController::class, 'show'])->name('examens.show');
+        Route::post('examens/{examen}/questions', [ExamenController::class, 'sauvegarderQuestions'])->name('examens.questions.sauvegarder');
         Route::get('examens/{examen}/pdf', [ExamenController::class, 'pdf'])->name('examens.pdf');
         Route::delete('examens/{examen}',  [ExamenController::class, 'destroy'])->name('examens.destroy');
         Route::get('classes/{classe}/matieres-ajax', [ExamenController::class, 'matieresParClasse'])->name('classes.matieres.ajax');
@@ -195,10 +197,12 @@ Route::middleware(['auth', 'role:admin'])
         Route::resource('annonces', AnnonceController::class)->except(['show']);
         Route::post('annonces/{annonce}/renvoyer', [AnnonceController::class, 'renvoyerEmail'])->name('annonces.renvoyer');
 
-        /* ───── Module 1 : Paramètres & Journal (placeholders à développer si besoin) ───── */
-        Route::get('parametres', function () {
-            return view('admin.parametres.index');
-        })->name('parametres');
+        /* ───── Module 1 : Paramètres ───── */
+        Route::get('parametres',                      [ParametreController::class, 'index'])->name('parametres');
+        Route::post('parametres/ia',                   [ParametreController::class, 'updateIA'])->name('parametres.ia.update');
+        Route::post('parametres/ia/tester',             [ParametreController::class, 'testerIA'])->name('parametres.ia.tester');
+        Route::post('parametres/admins',                [ParametreController::class, 'storeAdmin'])->name('parametres.admins.store');
+        Route::patch('parametres/admins/{admin}/toggle', [ParametreController::class, 'toggleAdmin'])->name('parametres.admins.toggle');
 
         Route::get('journal', function () {
             $logs = \App\Models\Journal::with('user')->latest()->paginate(30);
@@ -234,6 +238,7 @@ Route::middleware(['auth', 'role:enseignant'])
         Route::get('/examens/create',          [EnseignantExamenController::class, 'create'])->name('examens.create');
         Route::post('/examens/generer',        [EnseignantExamenController::class, 'generer'])->name('examens.generer');
         Route::get('/examens/{examen}',        [EnseignantExamenController::class, 'show'])->name('examens.show');
+        Route::post('/examens/{examen}/questions', [EnseignantExamenController::class, 'sauvegarderQuestions'])->name('examens.questions.sauvegarder');
         Route::get('/examens/{examen}/pdf',    [EnseignantExamenController::class, 'pdf'])->name('examens.pdf');
         Route::post('/examens/{examen}/envoyer',[EnseignantExamenController::class, 'envoyer'])->name('examens.envoyer');
         Route::post('/examens/{examen}/retirer',[EnseignantExamenController::class, 'retirer'])->name('examens.retirer');

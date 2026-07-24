@@ -128,7 +128,7 @@
         }
 
         @media print {
-            .no-print { display:none; }
+            .no-print { display:none !important; }
             body { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
         }
 

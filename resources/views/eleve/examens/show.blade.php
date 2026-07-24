@@ -70,7 +70,17 @@
     $ouvertes = $contenu['questions_ouvertes'] ?? [];
     $repQcm   = $copie->reponses['qcm'] ?? [];
     $repOuv   = $copie->reponses['ouvertes'] ?? [];
+    $texteSupport = $contenu['texte_support'] ?? '';
 @endphp
+
+@if(!empty($texteSupport))
+<div class="question-card" style="border-left:4px solid #0d9488; white-space:pre-wrap; line-height:1.75; font-size:13.5px; margin-bottom:20px;">
+    <strong style="font-size:11px; color:#0f766e; text-transform:uppercase; letter-spacing:.5px; display:block; margin-bottom:10px;">
+        <i class="fa-solid fa-book-open"></i> Texte à étudier
+    </strong>
+    {{ $texteSupport }}
+</div>
+@endif
 
 {{-- ════════════ COPIE DÉJÀ SOUMISE : résultats ════════════ --}}
 @if($copie)

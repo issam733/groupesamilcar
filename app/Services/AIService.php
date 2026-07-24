@@ -2,50 +2,69 @@
 
 namespace App\Services;
 
+use App\Models\AiSetting;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Exception;
 
-class GroqService
+/**
+ * Service IA unifié : bascule entre Groq et Anthropic selon la configuration
+ * enregistrée dans la table ia_settings (modifiable depuis Admin > Paramètres).
+ *
+ * L'interface publique est identique à l'ancien GroqService : les contrôleurs
+ * n'ont besoin de connaître ni le fournisseur actif, ni les détails d'appel API.
+ */
+class AIService
 {
-    private string $apiKey;
-    private string $apiUrl = 'https://api.groq.com/openai/v1/chat/completions';
+    private string $provider;
+    private ?string $apiKey;
     private string $model;
 
     public function __construct()
     {
-        $this->apiKey = config('services.groq.api_key', env('GROQ_API_KEY', ''));
-        $this->model  = config('services.groq.model', env('GROQ_MODEL', 'llama-3.3-70b-versatile'));
+        $settings = AiSetting::current();
+
+        $this->provider = $settings->provider ?: 'groq';
+
+        if ($this->provider === 'anthropic') {
+            $this->apiKey = $settings->anthropic_api_key ?: env('ANTHROPIC_API_KEY');
+            $this->model  = $settings->anthropic_model ?: env('ANTHROPIC_MODEL', 'claude-sonnet-5');
+        } else {
+            $this->apiKey = $settings->groq_api_key ?: env('GROQ_API_KEY');
+            $this->model  = $settings->groq_model ?: env('GROQ_MODEL', 'llama-3.3-70b-versatile');
+        }
     }
 
-    /**
-     * Vérifie si la clé API est configurée
-     */
     public function isConfigured(): bool
     {
         return !empty($this->apiKey);
+    }
+
+    public function providerActuel(): string
+    {
+        return $this->provider;
     }
 
     /**
      * Génère un examen complet à partir d'un contenu de cours
      *
      * @param string $contenuCours   Texte extrait du PDF ou saisi librement
-     * @param array  $options        ['langue', 'niveau', 'matiere', 'difficulte', 'nb_questions', 'nb_questions_ouvertes']
+     * @param array  $options        ['langue', 'niveau', 'matiere', 'difficulte', 'nb_qcm', 'nb_ouvertes']
      * @return array                 Structure JSON de l'examen généré
      * @throws Exception
      */
     public function genererExamen(string $contenuCours, array $options): array
     {
         if (!$this->isConfigured()) {
-            throw new Exception('La clé API Groq n\'est pas configurée. Contactez l\'administrateur système.');
+            throw new Exception('Aucune clé API IA n\'est configurée pour le fournisseur actif (' . $this->provider . '). Contactez l\'administrateur système.');
         }
 
-        $langue            = $options['langue']             ?? 'fr';
-        $niveau             = $options['niveau']             ?? '9ème année';
-        $matiere            = $options['matiere']            ?? 'Général';
-        $difficulte         = $options['difficulte']         ?? 'moyen';
-        $nbQcm              = (int) ($options['nb_qcm']      ?? 10);
-        $nbOuvertes         = (int) ($options['nb_ouvertes']  ?? 5);
+        $langue     = $options['langue']      ?? 'fr';
+        $niveau     = $options['niveau']      ?? '9ème année';
+        $matiere    = $options['matiere']     ?? 'Général';
+        $difficulte = $options['difficulte']  ?? 'moyen';
+        $nbQcm      = (int) ($options['nb_qcm']     ?? 10);
+        $nbOuvertes = (int) ($options['nb_ouvertes'] ?? 5);
 
         $prompt = $this->construirePrompt($contenuCours, $langue, $niveau, $matiere, $difficulte, $nbQcm, $nbOuvertes);
 
@@ -60,7 +79,7 @@ class GroqService
     public function genererResume(string $contenuCours, string $langue = 'fr'): array
     {
         if (!$this->isConfigured()) {
-            throw new Exception('La clé API Groq n\'est pas configurée.');
+            throw new Exception('Aucune clé API IA n\'est configurée pour le fournisseur actif.');
         }
 
         $langueTexte = $this->langueTexte($langue);
@@ -88,11 +107,11 @@ PROMPT;
     public function genererDevoir(string $sujet, array $options): array
     {
         if (!$this->isConfigured()) {
-            throw new Exception('La clé API Groq n\'est pas configurée.');
+            throw new Exception('Aucune clé API IA n\'est configurée pour le fournisseur actif.');
         }
 
-        $langue     = $options['langue']  ?? 'fr';
-        $niveau     = $options['niveau']  ?? '9ème année';
+        $langue      = $options['langue'] ?? 'fr';
+        $niveau      = $options['niveau'] ?? '9ème année';
         $langueTexte = $this->langueTexte($langue);
 
         $systemPrompt = <<<PROMPT
@@ -122,15 +141,11 @@ PROMPT;
     /**
      * Génère un rapport pédagogique détaillé sur les lacunes/difficultés d'un
      * élève à partir de sa performance à un examen.
-     *
-     * @param string $performance  Texte décrivant les réponses de l'élève et leur exactitude
-     * @param array  $meta         ['langue', 'eleve', 'matiere', 'niveau']
-     * @return array               { appreciation, points_forts[], lacunes[], difficultes[], recommandations[], message_parent }
      */
     public function genererRapportEleve(string $performance, array $meta): array
     {
         if (!$this->isConfigured()) {
-            throw new Exception('La clé API Groq n\'est pas configurée. Contactez l\'administrateur système.');
+            throw new Exception('Aucune clé API IA n\'est configurée pour le fournisseur actif.');
         }
 
         $langueTexte = $this->langueTexte($meta['langue'] ?? 'fr');
@@ -162,15 +177,11 @@ PROMPT;
     /**
      * Génère un rapport de synthèse pour toute une classe à partir des résultats
      * agrégés à un examen (taux de réussite par question, moyenne, etc.).
-     *
-     * @param string $statistiques  Texte décrivant les statistiques agrégées de la classe
-     * @param array  $meta          ['langue', 'matiere', 'niveau', 'classe']
-     * @return array  { synthese, lacunes_recurrentes[], questions_problematiques[], recommandations_pedagogiques[], suivi_eleves }
      */
     public function genererRapportClasse(string $statistiques, array $meta): array
     {
         if (!$this->isConfigured()) {
-            throw new Exception('La clé API Groq n\'est pas configurée. Contactez l\'administrateur système.');
+            throw new Exception('Aucune clé API IA n\'est configurée pour le fournisseur actif.');
         }
 
         $langueTexte = $this->langueTexte($meta['langue'] ?? 'fr');
@@ -198,6 +209,19 @@ PROMPT;
         return $this->parserReponse($response);
     }
 
+    /**
+     * Petit appel de test pour valider qu'une clé API fonctionne réellement
+     * (utilisé par le bouton "Tester la connexion" dans Paramètres).
+     */
+    public function testerConnexion(): void
+    {
+        if (!$this->isConfigured()) {
+            throw new Exception('Aucune clé n\'est renseignée pour ce fournisseur.');
+        }
+        // Appel minimal, ne coûte presque rien, sert juste à valider la clé/le réseau.
+        $this->appelerApi('Réponds uniquement par le mot "ok" en JSON : {"status":"ok"}', 'Test de connexion.');
+    }
+
     /* ─────────────────────────────────────────────────────── */
     /* MÉTHODES PRIVÉES                                         */
     /* ─────────────────────────────────────────────────────── */
@@ -206,18 +230,35 @@ PROMPT;
         string $contenuCours, string $langue, string $niveau,
         string $matiere, string $difficulte, int $nbQcm, int $nbOuvertes
     ): string {
-        $langueTexte    = $this->langueTexte($langue);
+        $langueTexte = $this->langueTexte($langue);
+
         $difficulteTexte = match($difficulte) {
-            'facile'    => 'facile, questions de compréhension de base',
-            'difficile' => 'difficile, questions d\'analyse et de synthèse approfondies',
-            default     => 'moyen, équilibre entre mémorisation et compréhension',
+            'facile' => <<<TXT
+FACILE : questions de compréhension et de restitution directe. Les réponses se trouvent explicitement et littéralement dans le cours. Vocabulaire simple, une seule idée par question.
+TXT,
+            'difficile' => <<<TXT
+DIFFICILE — exigence stricte, à respecter impérativement :
+- INTERDIT de poser des questions dont la réponse est une simple phrase recopiable telle quelle du cours.
+- Chaque question QCM doit exiger une analyse, une déduction, une comparaison entre plusieurs passages, ou l'application d'une notion à un cas nouveau non traité explicitement dans le cours.
+- Les distracteurs (mauvaises réponses du QCM) doivent être plausibles et proches de la bonne réponse — pas des choix absurdes faciles à écarter par élimination.
+- Les questions ouvertes doivent demander une argumentation, une justification, une mise en relation de plusieurs éléments, ou un jugement critique — jamais une simple définition.
+- Exemple de question INTERDITE (trop facile même en mode difficile) : "Quel est le personnage principal du texte ?"
+- Exemple de question ATTENDUE en mode difficile : "En quoi le comportement du personnage à la ligne X contredit-il ce qu'il affirme au début du texte ? Justifie."
+TXT,
+            default => <<<TXT
+MOYEN : équilibre entre restitution directe et compréhension. Certaines questions demandent de reformuler ou relier deux idées du cours, sans exiger une analyse poussée.
+TXT,
         };
 
         return <<<PROMPT
 Tu es un professeur expérimenté de {$matiere}, niveau {$niveau}.
-Analyse le cours fourni par l'utilisateur et génère un examen complet.
+Analyse le cours/texte fourni par l'utilisateur et génère un examen complet.
 
-Niveau de difficulté souhaité : {$difficulteTexte}.
+Niveau de difficulté souhaité :
+{$difficulteTexte}
+
+IMPORTANT — texte de support :
+Si le contenu fourni est un texte à étudier (étude de texte, texte littéraire, article, poème, extrait à analyser, compréhension de l'écrit), tu DOIS reproduire ce texte intégralement et fidèlement dans le champ "texte_support", afin que l'élève puisse le lire pendant l'examen. Ne le résume pas, ne le raccourcis pas. S'il n'y a pas de texte à étudier (cours théorique, notions de maths/sciences, etc.), laisse "texte_support" à une chaîne vide "".
 
 Réponds UNIQUEMENT avec un objet JSON valide (sans markdown, sans backticks, sans texte avant ou après) respectant EXACTEMENT cette structure :
 
@@ -227,6 +268,7 @@ Réponds UNIQUEMENT avec un objet JSON valide (sans markdown, sans backticks, sa
   "niveau": "{$niveau}",
   "duree_minutes": 60,
   "bareme_total": 20,
+  "texte_support": "Texte intégral à étudier si applicable, sinon chaîne vide",
   "qcm": [
     {
       "numero": 1,
@@ -249,7 +291,7 @@ Réponds UNIQUEMENT avec un objet JSON valide (sans markdown, sans backticks, sa
 
 Génère exactement {$nbQcm} questions QCM (4 choix chacune, une seule bonne réponse, index 0-3) et {$nbOuvertes} questions ouvertes.
 Le barème total doit être cohérent et sommer à 20.
-Réponds entièrement en {$langueTexte}, y compris les questions, choix et explications.
+Réponds entièrement en {$langueTexte}, y compris les questions, choix et explications (le texte_support reste dans sa langue d'origine s'il t'est fourni tel quel).
 PROMPT . "\n\nContenu du cours à analyser :\n" . $contenuCours;
     }
 
@@ -263,29 +305,50 @@ PROMPT . "\n\nContenu du cours à analyser :\n" . $contenuCours;
     }
 
     /**
-     * Appelle l'API Groq (chat completions, compatible OpenAI)
+     * Appelle l'API du fournisseur actif (Groq ou Anthropic) et retourne le texte brut de la réponse.
      */
     private function appelerApi(string $systemPrompt, string $userContent = ''): string
     {
-        $messages = [
-            ['role' => 'system', 'content' => $systemPrompt],
-        ];
-
-        if ($userContent !== '') {
-            $messages[] = ['role' => 'user', 'content' => $userContent];
-        } else {
-            $messages[] = ['role' => 'user', 'content' => 'Génère le contenu demandé.'];
-        }
+        $contenuUtilisateur = $userContent !== '' ? $userContent : 'Génère le contenu demandé.';
 
         try {
+            if ($this->provider === 'anthropic') {
+                $response = Http::withHeaders([
+                    'x-api-key'         => $this->apiKey,
+                    'anthropic-version' => '2023-06-01',
+                    'content-type'      => 'application/json',
+                ])
+                ->timeout(90)
+                ->post('https://api.anthropic.com/v1/messages', [
+                    'model'      => $this->model,
+                    'max_tokens' => 4096,
+                    'system'     => $systemPrompt,
+                    'messages'   => [
+                        ['role' => 'user', 'content' => $contenuUtilisateur],
+                    ],
+                ]);
+
+                if ($response->failed()) {
+                    Log::error('Anthropic API error', ['status' => $response->status(), 'body' => $response->body()]);
+                    throw new Exception('Erreur lors de la communication avec Anthropic (code ' . $response->status() . '). Vérifiez la clé API.');
+                }
+
+                $data = $response->json();
+                return $data['content'][0]['text'] ?? '';
+            }
+
+            // Groq (compatible OpenAI chat completions)
             $response = Http::withHeaders([
                 'Authorization' => 'Bearer ' . $this->apiKey,
                 'Content-Type'  => 'application/json',
             ])
             ->timeout(90)
-            ->post($this->apiUrl, [
+            ->post('https://api.groq.com/openai/v1/chat/completions', [
                 'model'           => $this->model,
-                'messages'        => $messages,
+                'messages'        => [
+                    ['role' => 'system', 'content' => $systemPrompt],
+                    ['role' => 'user', 'content' => $contenuUtilisateur],
+                ],
                 'temperature'     => 0.7,
                 'max_tokens'      => 4096,
                 'response_format' => ['type' => 'json_object'],
@@ -293,15 +356,15 @@ PROMPT . "\n\nContenu du cours à analyser :\n" . $contenuCours;
 
             if ($response->failed()) {
                 Log::error('Groq API error', ['status' => $response->status(), 'body' => $response->body()]);
-                throw new Exception('Erreur lors de la communication avec l\'IA (code ' . $response->status() . '). Vérifiez la clé API.');
+                throw new Exception('Erreur lors de la communication avec Groq (code ' . $response->status() . '). Vérifiez la clé API.');
             }
 
             $data = $response->json();
             return $data['choices'][0]['message']['content'] ?? '';
 
         } catch (Exception $e) {
-            Log::error('Groq Service Exception', ['message' => $e->getMessage()]);
-            throw new Exception('Impossible de contacter le service IA : ' . $e->getMessage());
+            Log::error('AIService Exception', ['provider' => $this->provider, 'message' => $e->getMessage()]);
+            throw new Exception('Impossible de contacter le service IA (' . $this->provider . ') : ' . $e->getMessage());
         }
     }
 
@@ -310,7 +373,6 @@ PROMPT . "\n\nContenu du cours à analyser :\n" . $contenuCours;
      */
     private function parserReponse(string $jsonResponse): array
     {
-        // Nettoyage au cas où l'IA ajoute des balises markdown malgré la consigne
         $clean = trim($jsonResponse);
         $clean = preg_replace('/^```json\s*/i', '', $clean);
         $clean = preg_replace('/^```\s*/i', '', $clean);
@@ -320,7 +382,7 @@ PROMPT . "\n\nContenu du cours à analyser :\n" . $contenuCours;
         $data = json_decode($clean, true);
 
         if (json_last_error() !== JSON_ERROR_NONE || !is_array($data)) {
-            Log::error('Groq JSON parse error', ['raw' => $jsonResponse, 'error' => json_last_error_msg()]);
+            Log::error('AIService JSON parse error', ['raw' => $jsonResponse, 'error' => json_last_error_msg()]);
             throw new Exception('La réponse de l\'IA n\'a pas pu être interprétée. Veuillez réessayer.');
         }
 

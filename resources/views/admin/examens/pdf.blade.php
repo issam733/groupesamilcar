@@ -94,7 +94,7 @@
         }
 
         @media print {
-            .no-print { display:none; }
+            .no-print { display:none !important; }
             body { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
         }
 
@@ -149,6 +149,13 @@
             <div>Prénom : <span class="info-field-line">&nbsp;</span></div>
             <div>Classe : <span class="info-field-line">&nbsp;</span></div>
             <div>Date : <span class="info-field-line">&nbsp;</span></div>
+        </div>
+        @endif
+
+        @if(!empty($contenu['texte_support']))
+        <div class="section-title">Texte à étudier</div>
+        <div style="border:1px solid #ddd; border-radius:6px; padding:12px 14px; margin-bottom:16px; font-size:11.5px; line-height:1.6; white-space:pre-wrap;">
+            {{ $contenu['texte_support'] }}
         </div>
         @endif
 

@@ -12,7 +12,7 @@ use App\Models\Copie;
 use App\Models\User;
 use App\Mail\RapportEleveMail;
 use App\Notifications\RapportPartageNotification;
-use App\Services\GroqService;
+use App\Services\AIService;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Log;
@@ -20,9 +20,9 @@ use Exception;
 
 class ExamenController extends Controller
 {
-    private GroqService $groq;
+    private AIService $groq;
 
-    public function __construct(GroqService $groq)
+    public function __construct(AIService $groq)
     {
         $this->groq = $groq;
     }
@@ -181,6 +181,71 @@ class ExamenController extends Controller
         Journal::log('modification', "a retiré l'examen « {$examen->titre} » de l'espace élèves");
 
         return back()->with('success', "L'examen a été retiré de l'espace élèves.");
+    }
+
+    /* ─── SAUVEGARDER LES QUESTIONS ÉDITÉES (brouillon uniquement) ─── */
+    public function sauvegarderQuestions(Examen $examen, Request $request)
+    {
+        $ens = DashboardController::enseignantActuel();
+        if (!$ens || $examen->enseignant_id !== $ens->id) abort(403);
+
+        if ($examen->statut !== 'genere') {
+            return response()->json([
+                'success' => false,
+                'message' => "Impossible de modifier un examen déjà envoyé aux élèves. Retirez-le d'abord de l'espace élèves.",
+            ], 422);
+        }
+
+        $data = $request->validate([
+            'titre'                        => 'nullable|string|max:255',
+            'texte_support'                => 'nullable|string',
+            'qcm'                          => 'array',
+            'qcm.*.question'               => 'required|string',
+            'qcm.*.choix'                  => 'required|array|size:4',
+            'qcm.*.choix.*'                => 'required|string',
+            'qcm.*.bonne_reponse'          => 'required|integer|min:0|max:3',
+            'qcm.*.points'                 => 'required|numeric|min:0',
+            'qcm.*.explication'            => 'nullable|string',
+            'questions_ouvertes'                    => 'array',
+            'questions_ouvertes.*.question'          => 'required|string',
+            'questions_ouvertes.*.reponse_attendue'  => 'nullable|string',
+            'questions_ouvertes.*.points'            => 'required|numeric|min:0',
+        ]);
+
+        $contenu = json_decode($examen->contenu, true) ?? [];
+
+        // Renumérotation selon l'ordre reçu (reflète le glisser-déposer)
+        $qcm = collect($data['qcm'] ?? [])->values()->map(function ($q, $i) {
+            $q['numero'] = $i + 1;
+            return $q;
+        })->all();
+
+        $ouvertes = collect($data['questions_ouvertes'] ?? [])->values()->map(function ($q, $i) {
+            $q['numero'] = $i + 1;
+            return $q;
+        })->all();
+
+        $bareme = collect($qcm)->sum('points') + collect($ouvertes)->sum('points');
+
+        $contenu['titre']              = $data['titre'] ?? $contenu['titre'] ?? $examen->titre;
+        $contenu['texte_support']      = $data['texte_support'] ?? '';
+        $contenu['qcm']                = $qcm;
+        $contenu['questions_ouvertes'] = $ouvertes;
+        $contenu['bareme_total']       = $bareme;
+
+        $examen->update([
+            'titre'        => $contenu['titre'],
+            'contenu'      => json_encode($contenu, JSON_UNESCAPED_UNICODE),
+            'nb_questions' => count($qcm) + count($ouvertes),
+        ]);
+
+        Journal::log('modification', "a modifié les questions de l'examen « {$contenu['titre']} »");
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Modifications enregistrées.',
+            'bareme_total' => $bareme,
+        ]);
     }
 
     /* ─── PDF : réutilise la vue d'impression de l'admin ───── */

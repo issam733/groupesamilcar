@@ -65,9 +65,13 @@
             font-family:'Helvetica',sans-serif;
         }
 
-        @media print { .no-print { display:none; } body { print-color-adjust:exact; -webkit-print-color-adjust:exact; } }
         .print-bar { background:#1a4fa0; color:#fff; padding:12px 20px; display:flex; justify-content:space-between; align-items:center; font-family:'Helvetica',sans-serif; }
         .print-bar button { background:#fff; color:#1a4fa0; border:none; padding:8px 18px; border-radius:8px; font-weight:600; font-size:13px; cursor:pointer; }
+
+        @media print {
+            .no-print { display:none !important; }
+            body { print-color-adjust:exact; -webkit-print-color-adjust:exact; }
+        }
     </style>
 </head>
 <body>

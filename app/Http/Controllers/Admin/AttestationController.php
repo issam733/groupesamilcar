@@ -7,9 +7,16 @@ use Illuminate\Http\Request;
 use App\Models\Attestation;
 use App\Models\Eleve;
 use App\Models\Journal;
+use App\Services\QrCodeService;
 
 class AttestationController extends Controller
 {
+    private QrCodeService $qrCode;
+
+    public function __construct(QrCodeService $qrCode)
+    {
+        $this->qrCode = $qrCode;
+    }
     /* ─── INDEX : historique ─────────────────────────────────── */
     public function index(Request $request)
     {
@@ -75,7 +82,7 @@ class AttestationController extends Controller
         $attestation->load('eleve.classe');
 
         $urlVerification = route('verify', $attestation->numero_unique);
-        $qrCodeSvg = $this->genererQrCodeSvg($urlVerification);
+        $qrCodeSvg = $this->qrCode->genererSvg($urlVerification);
 
         Journal::log('export', "a imprimé l'attestation {$attestation->numero_unique}");
 
@@ -100,14 +107,4 @@ class AttestationController extends Controller
      * `simplesoftwareio/simple-qrcode` (voir notes d'intégration dans le README).
      * Ce fallback affiche un placeholder visuel + le lien en texte.
      */
-    private function genererQrCodeSvg(string $url): string
-    {
-        // Placeholder simple : un cadre avec motif générique.
-        // À remplacer par une vraie librairie QR en production.
-        return '<svg width="140" height="140" viewBox="0 0 140 140" xmlns="http://www.w3.org/2000/svg">
-            <rect width="140" height="140" fill="#fff" stroke="#1a4fa0" stroke-width="2"/>
-            <text x="70" y="65" font-size="9" text-anchor="middle" fill="#1a4fa0" font-family="monospace">QR CODE</text>
-            <text x="70" y="80" font-size="7" text-anchor="middle" fill="#6b7f99" font-family="monospace">(voir README)</text>
-        </svg>';
-    }
 }

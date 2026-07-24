@@ -60,7 +60,7 @@ class BibliothequeController extends Controller
             'matiere_id'    => 'nullable|exists:matieres,id',
             'enseignant_id' => 'nullable|exists:enseignants,id',
             'niveau'        => 'nullable|string|max:50',
-            'fichier'       => 'required_if:type,pdf,autre|file|max:20480',
+            'fichier'       => 'required_if:type,pdf,autre|file|max:20480|mimes:pdf,doc,docx,ppt,pptx,xls,xlsx,zip,jpg,jpeg,png',
             'lien_externe'  => 'required_if:type,video,lien|nullable|url',
         ], [
             'titre.required'        => 'Le titre est obligatoire.',

@@ -9,15 +9,15 @@ use App\Models\Classe;
 use App\Models\Matiere;
 use App\Models\Enseignant;
 use App\Models\Journal;
-use App\Services\GroqService;
+use App\Services\AIService;
 use Illuminate\Support\Facades\Storage;
 use Exception;
 
 class ExamenController extends Controller
 {
-    private GroqService $groq;
+    private AIService $groq;
 
-    public function __construct(GroqService $groq)
+    public function __construct(AIService $groq)
     {
         $this->groq = $groq;
     }
@@ -139,6 +139,67 @@ class ExamenController extends Controller
         $contenu = json_decode($examen->contenu, true) ?? [];
 
         return view('admin.examens.show', compact('examen', 'contenu'));
+    }
+
+    /* ─── SAUVEGARDER LES QUESTIONS ÉDITÉES (brouillon uniquement) ─── */
+    public function sauvegarderQuestions(Examen $examen, Request $request)
+    {
+        if ($examen->statut !== 'genere') {
+            return response()->json([
+                'success' => false,
+                'message' => "Impossible de modifier un examen déjà envoyé aux élèves par l'enseignant.",
+            ], 422);
+        }
+
+        $data = $request->validate([
+            'titre'                        => 'nullable|string|max:255',
+            'texte_support'                => 'nullable|string',
+            'qcm'                          => 'array',
+            'qcm.*.question'               => 'required|string',
+            'qcm.*.choix'                  => 'required|array|size:4',
+            'qcm.*.choix.*'                => 'required|string',
+            'qcm.*.bonne_reponse'          => 'required|integer|min:0|max:3',
+            'qcm.*.points'                 => 'required|numeric|min:0',
+            'qcm.*.explication'            => 'nullable|string',
+            'questions_ouvertes'                    => 'array',
+            'questions_ouvertes.*.question'          => 'required|string',
+            'questions_ouvertes.*.reponse_attendue'  => 'nullable|string',
+            'questions_ouvertes.*.points'            => 'required|numeric|min:0',
+        ]);
+
+        $contenu = json_decode($examen->contenu, true) ?? [];
+
+        $qcm = collect($data['qcm'] ?? [])->values()->map(function ($q, $i) {
+            $q['numero'] = $i + 1;
+            return $q;
+        })->all();
+
+        $ouvertes = collect($data['questions_ouvertes'] ?? [])->values()->map(function ($q, $i) {
+            $q['numero'] = $i + 1;
+            return $q;
+        })->all();
+
+        $bareme = collect($qcm)->sum('points') + collect($ouvertes)->sum('points');
+
+        $contenu['titre']              = $data['titre'] ?? $contenu['titre'] ?? $examen->titre;
+        $contenu['texte_support']      = $data['texte_support'] ?? '';
+        $contenu['qcm']                = $qcm;
+        $contenu['questions_ouvertes'] = $ouvertes;
+        $contenu['bareme_total']       = $bareme;
+
+        $examen->update([
+            'titre'        => $contenu['titre'],
+            'contenu'      => json_encode($contenu, JSON_UNESCAPED_UNICODE),
+            'nb_questions' => count($qcm) + count($ouvertes),
+        ]);
+
+        Journal::log('modification', "a modifié les questions de l'examen « {$contenu['titre']} »");
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Modifications enregistrées.',
+            'bareme_total' => $bareme,
+        ]);
     }
 
     /* ─── PDF : version imprimable (sujet + corrigé) ────────── */
