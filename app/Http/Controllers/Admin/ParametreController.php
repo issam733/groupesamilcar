@@ -10,6 +10,8 @@ use App\Models\Journal;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use App\Services\AIService;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Artisan;
 use Exception;
 
 class ParametreController extends Controller
@@ -140,5 +142,59 @@ class ParametreController extends Controller
 
         return redirect()->route('admin.parametres')
             ->with('success', "L'administrateur {$admin->prenom} {$admin->nom} a été {$action}.");
+    }
+
+    /* ─── RÉPARATION PONCTUELLE : resynchronise la table migrations ─────────
+       Nécessaire car la table `migrations` de production ne correspondait pas
+       aux tables réellement présentes en base (import initial hors Artisan).
+       Sans ceci, `php artisan migrate` retente de recréer `users` etc. et
+       échoue silencieusement au démarrage du conteneur (le script Docker
+       avale l'erreur avec `|| true`), empêchant toute nouvelle migration
+       de s'appliquer. À supprimer une fois utilisée. ────────────────────── */
+    public function repererMigrations(Request $request)
+    {
+        if ($request->query('confirmer') !== '1') {
+            return response(
+                "Action sensible : ajoutez ?confirmer=1 à l'URL pour l'exécuter volontairement.",
+                400
+            )->header('Content-Type', 'text/plain; charset=utf-8');
+        }
+
+        $dejaAppliquees = [
+            '0001_01_01_000000_create_users_table',
+            '0001_01_01_000001_create_cache_table',
+            '0001_01_01_000002_create_jobs_table',
+            '2026_06_26_093000_change_examens_statut_to_string',
+            '2026_06_26_100000_create_examen_copies_table',
+            '2026_06_26_110000_add_rapport_to_examen_copies',
+            '2026_06_26_120000_add_rapport_classe_to_examens',
+            '2026_06_26_130000_create_notifications_table',
+            '2026_06_27_111314_create_points_eleves_table',
+            '2026_06_30_140000_create_messagerie_tables',
+            '2026_07_01_090000_create_emplois_du_temps_table',
+            '2026_07_01_100000_create_absences_table',
+            '2026_07_01_110000_create_cahier_textes_table',
+            '2026_07_02_090000_add_fichier_to_cahier_textes',
+        ];
+
+        $batch = (int) (DB::table('migrations')->max('batch') ?? 0) + 1;
+        $inserees = 0;
+
+        foreach ($dejaAppliquees as $migration) {
+            $existe = DB::table('migrations')->where('migration', $migration)->exists();
+            if (!$existe) {
+                DB::table('migrations')->insert(['migration' => $migration, 'batch' => $batch]);
+                $inserees++;
+            }
+        }
+
+        Artisan::call('migrate', ['--force' => true]);
+        $sortie = Artisan::output();
+
+        Journal::log('modification', "a resynchronisé la table migrations ({$inserees} entrée(s) ajoutée(s)) puis exécuté migrate");
+
+        return response(
+            "Entrées de migrations resynchronisées : {$inserees}\n\n--- Résultat de 'php artisan migrate --force' ---\n\n{$sortie}"
+        )->header('Content-Type', 'text/plain; charset=utf-8');
     }
 }

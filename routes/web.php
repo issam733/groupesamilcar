@@ -203,6 +203,7 @@ Route::middleware(['auth', 'role:admin'])
         Route::post('parametres/ia/tester',             [ParametreController::class, 'testerIA'])->name('parametres.ia.tester');
         Route::post('parametres/admins',                [ParametreController::class, 'storeAdmin'])->name('parametres.admins.store');
         Route::patch('parametres/admins/{admin}/toggle', [ParametreController::class, 'toggleAdmin'])->name('parametres.admins.toggle');
+        Route::get('systeme/reparer-migrations', [ParametreController::class, 'repererMigrations'])->name('systeme.reparer-migrations');
 
         Route::get('journal', function () {
             $logs = \App\Models\Journal::with('user')->latest()->paginate(30);
